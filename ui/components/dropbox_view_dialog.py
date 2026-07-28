@@ -1,6 +1,6 @@
 import os
 import datetime
-from typing import List
+from typing import List, Optional
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QMenu, QMessageBox, QFileDialog
