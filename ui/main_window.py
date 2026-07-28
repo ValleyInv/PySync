@@ -273,32 +273,38 @@ class MainWindow(QMainWindow):
 
         count = 0
         is_pure_cloud = self.config.get("pure_cloud_mode", False) and self.engine.cloud_provider.is_connected()
+        preserve_folders = self.config.get("preserve_customer_folders", True)
 
         for pkg in packages:
             src = pkg.full_path
             # Strip trailing .# number (e.g., '252425-1-022426.tpkj.2' -> '252425-1-022426.tpkj')
             clean_name = get_clean_tpkj_filename(pkg.file_name)
 
+            if preserve_folders and pkg.customer_name and pkg.customer_name != "Unknown":
+                dest_sub = f"{self.current_sub_path}/{pkg.customer_name}".strip("/").replace("//", "/")
+            else:
+                dest_sub = self.current_sub_path
+
             if is_pure_cloud:
-                cloud_dest = f"{self.config.get_cloud_target_path()}/{self.current_sub_path}/{clean_name}".replace("//", "/")
+                cloud_dest = f"{self.config.get_cloud_target_path()}/{dest_sub}/{clean_name}".replace("//", "/")
                 ok, msg = self.engine.cloud_provider.upload_file(src, cloud_dest)
                 if ok:
                     count += 1
             else:
-                res = self.engine.local_provider.copy_file_in(src, self.current_sub_path, override_filename=clean_name)
+                res = self.engine.local_provider.copy_file_in(src, dest_sub, override_filename=clean_name)
                 if res:
                     count += 1
                     if self.engine.cloud_provider.is_connected():
-                        cloud_dest = f"{self.config.get_cloud_target_path()}/{self.current_sub_path}/{clean_name}".replace("//", "/")
+                        cloud_dest = f"{self.config.get_cloud_target_path()}/{dest_sub}/{clean_name}".replace("//", "/")
                         self.engine.cloud_provider.upload_file(res, cloud_dest)
 
         self.transfer_bar.hide_progress()
         if count > 0:
             self.load_directory(self.current_sub_path)
-            QMessageBox.information(
-                self, "Packages Transferred",
-                f"Successfully sent {count} package(s) to Dropbox as clean '.tpkj' files!"
-            )
+            msg_str = f"Successfully sent {count} package(s) to Dropbox as clean '.tpkj' files!"
+            if preserve_folders:
+                msg_str += "\n\nPackages were organized into Customer subfolders."
+            QMessageBox.information(self, "Packages Transferred", msg_str)
 
     def _on_settings_clicked(self):
         dlg = SettingsDialog(self.config, self)

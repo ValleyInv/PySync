@@ -13,6 +13,7 @@ class ConfigManager:
             "local_dropbox_root": self._detect_dropbox_root(),
             "target_rel_path": DEFAULT_REL_PATH,
             "scan_target_path": DEFAULT_SCAN_PATH,
+            "preserve_customer_folders": True, # Automatically organize transfers into Customer subfolders
             "custom_local_path": "",
             "dropbox_access_token": "",
             "pure_cloud_mode": False,   # Disk-Saver Pure Cloud API Mode

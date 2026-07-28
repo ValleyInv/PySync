@@ -12,7 +12,7 @@ class SettingsDialog(QDialog):
     def __init__(self, config: ConfigManager, parent=None):
         super().__init__(parent)
         self.config = config
-        self.setWindowTitle("⚙ PySync Settings & Disk Saver Options")
+        self.setWindowTitle("⚙ PySync Settings & Transfer Options")
         self.setFixedWidth(560)
         self.init_ui()
 
@@ -46,6 +46,23 @@ class SettingsDialog(QDialog):
         local_layout.addWidget(self.lbl_effective)
 
         layout.addWidget(local_group)
+
+        # Package Transfer & Organization Options Section
+        transfer_group = QGroupBox("Package Transfer & Subfolder Organization")
+        transfer_layout = QVBoxLayout(transfer_group)
+        transfer_layout.setSpacing(8)
+
+        self.preserve_folders_chk = QCheckBox("📁 Organize packages into Customer subfolders in Dropbox (Recommended)")
+        self.preserve_folders_chk.setChecked(self.config.get("preserve_customer_folders", True))
+        self.preserve_folders_chk.setStyleSheet("font-weight: bold; color: #5865f2;")
+        transfer_layout.addWidget(self.preserve_folders_chk)
+
+        folder_desc = QLabel("Organizes transferred packages as 'Packages / <Customer_Name> / <Package_Name>.tpkj', keeping Dropbox clean and fast to browse.")
+        folder_desc.setStyleSheet("color: #949ba4; font-size: 11px;")
+        folder_desc.setWordWrap(True)
+        transfer_layout.addWidget(folder_desc)
+
+        layout.addWidget(transfer_group)
 
         # Cloud API & Disk Saver Section
         cloud_group = QGroupBox("Dropbox Cloud API & Disk Saver Mode")
@@ -166,6 +183,7 @@ class SettingsDialog(QDialog):
         self.config.set("local_dropbox_root", self.local_path_edit.text().strip())
         self.config.set("dropbox_access_token", self.token_edit.text().strip())
         self.config.set("pure_cloud_mode", self.pure_cloud_chk.isChecked())
+        self.config.set("preserve_customer_folders", self.preserve_folders_chk.isChecked())
         try:
             val = int(self.cache_mb_edit.text().strip())
             self.config.set("max_cache_mb", val)
