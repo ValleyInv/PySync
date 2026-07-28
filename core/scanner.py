@@ -57,17 +57,21 @@ class PackageScannerWorker(QThread):
                 tpkj_files = []
 
                 for f in files:
+                    f_lower = f.lower()
                     m = pattern.search(f)
                     if m:
                         num = int(m.group(2))
                         tpkj_files.append((num, f, os.path.join(root, f)))
-                    elif '.tpkj.' in f.lower():
-                        nums = re.findall(r'\d+', f.split('.tpkj.')[-1])
+                    elif f_lower.endswith('.tpkj'):
+                        # Direct .tpkj file without trailing version suffix (treated as v1)
+                        tpkj_files.append((1, f, os.path.join(root, f)))
+                    elif '.tpkj.' in f_lower:
+                        nums = re.findall(r'\d+', f_lower.split('.tpkj.')[-1])
                         num = int(nums[-1]) if nums else 0
                         tpkj_files.append((num, f, os.path.join(root, f)))
 
                 if tpkj_files:
-                    # Pick highest number in this directory
+                    # Pick highest version number in this directory
                     tpkj_files.sort(key=lambda x: x[0], reverse=True)
                     highest_num, highest_file, highest_path = tpkj_files[0]
 
