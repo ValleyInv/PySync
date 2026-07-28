@@ -7,6 +7,7 @@ class HeaderBar(QWidget):
     search_changed = pyqtSignal(str)
     refresh_clicked = pyqtSignal()
     scan_clicked = pyqtSignal() # Scan Titan Customer tpkj packages
+    view_dropbox_clicked = pyqtSignal() # View & Decrypt Dropbox Packages
     upload_clicked = pyqtSignal()
     new_folder_clicked = pyqtSignal()
     view_mode_changed = pyqtSignal(str) # 'table' or 'grid'
@@ -56,6 +57,12 @@ class HeaderBar(QWidget):
         self.scan_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.scan_btn.clicked.connect(self.scan_clicked.emit)
         layout.addWidget(self.scan_btn)
+
+        self.view_dropbox_btn = QPushButton("📦 View Dropbox")
+        self.view_dropbox_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.view_dropbox_btn.setToolTip("Scan Dropbox and display all packages unencrypted & unmasked")
+        self.view_dropbox_btn.clicked.connect(self.view_dropbox_clicked.emit)
+        layout.addWidget(self.view_dropbox_btn)
 
         self.refresh_btn = QPushButton("🔄 Refresh")
         self.refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)

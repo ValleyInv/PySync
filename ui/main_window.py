@@ -12,6 +12,7 @@ from core.hybrid_engine import HybridEngine
 from core.models import PackageItem
 from core.scanner import ScannedPackageItem
 from core.crypto import encrypt_file_to_bytes, anonymize_name
+from core.dropbox_scanner import update_anonymization_index
 
 from ui.components.header_bar import HeaderBar
 from ui.components.sidebar import Sidebar
@@ -20,6 +21,7 @@ from ui.components.detail_panel import DetailPanel
 from ui.components.transfer_bar import TransferBar
 from ui.components.settings_dialog import SettingsDialog
 from ui.components.scanner_dialog import ScannerDialog
+from ui.components.dropbox_view_dialog import DropboxViewDialog
 from ui.styles import DARK_THEME, LIGHT_THEME
 
 def get_clean_tpkj_filename(filename: str) -> str:
@@ -70,6 +72,7 @@ class MainWindow(QMainWindow):
         self.header_bar = HeaderBar()
         self.header_bar.search_changed.connect(self._on_search_changed)
         self.header_bar.scan_clicked.connect(self._on_scan_packages_clicked)
+        self.header_bar.view_dropbox_clicked.connect(self._on_view_dropbox_clicked)
         self.header_bar.refresh_clicked.connect(lambda: self.load_directory(self.current_sub_path))
         self.header_bar.upload_clicked.connect(self._on_upload_clicked)
         self.header_bar.new_folder_clicked.connect(self._on_new_folder_clicked)
@@ -250,10 +253,17 @@ class MainWindow(QMainWindow):
         use_anon = self.config.get("anonymize_filenames", False)
         enc_key = self.config.get("encryption_key", "").strip()
 
+        index_updates = {}
+
         for src in file_paths:
             orig_name = os.path.basename(src)
             clean_name = get_clean_tpkj_filename(orig_name)
-            dest_name = anonymize_name(clean_name, prefix="PKG") + ".tpkj" if use_anon else clean_name
+            
+            if use_anon:
+                dest_name = anonymize_name(clean_name, prefix="PKG") + ".tpkj"
+                index_updates[dest_name] = clean_name
+            else:
+                dest_name = clean_name
 
             src_to_send = src
             temp_enc_file = None
@@ -285,6 +295,9 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
+        if index_updates:
+            update_anonymization_index(self.config, index_updates)
+
         if count > 0:
             self.load_directory(self.current_sub_path)
             self.transfer_bar.set_status(f"Uploaded {count} file(s) successfully.")
@@ -292,6 +305,10 @@ class MainWindow(QMainWindow):
     def _on_scan_packages_clicked(self):
         dlg = ScannerDialog(self.config, self)
         dlg.send_packages_requested.connect(self._on_send_scanned_packages)
+        dlg.exec()
+
+    def _on_view_dropbox_clicked(self):
+        dlg = DropboxViewDialog(self.config, self.engine, self)
         dlg.exec()
 
     def _on_send_scanned_packages(self, packages: List[ScannedPackageItem]):
@@ -305,6 +322,8 @@ class MainWindow(QMainWindow):
         use_anon = self.config.get("anonymize_filenames", False)
         enc_key = self.config.get("encryption_key", "").strip()
 
+        index_updates = {}
+
         for pkg in packages:
             src = pkg.full_path
             clean_name = get_clean_tpkj_filename(pkg.file_name)
@@ -312,6 +331,8 @@ class MainWindow(QMainWindow):
             if use_anon:
                 cust_folder = anonymize_name(pkg.customer_name, prefix="CUST")
                 dest_file_name = anonymize_name(clean_name, prefix="PKG") + ".tpkj"
+                index_updates[cust_folder] = pkg.customer_name
+                index_updates[dest_file_name] = clean_name
             else:
                 cust_folder = pkg.customer_name
                 dest_file_name = clean_name
@@ -350,6 +371,9 @@ class MainWindow(QMainWindow):
                     os.remove(temp_enc_file)
                 except Exception:
                     pass
+
+        if index_updates:
+            update_anonymization_index(self.config, index_updates)
 
         self.transfer_bar.hide_progress()
         if count > 0:
