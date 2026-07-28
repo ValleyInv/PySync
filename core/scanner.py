@@ -26,6 +26,28 @@ class ScannedPackageItem:
             num /= 1024.0
         return f"{num:.1f} TB"
 
+def parse_customer_and_store(root_path: str, base_dir: str, file_name: str) -> Tuple[str, str]:
+    """Parses customer name and store name from folder path or package filename."""
+    rel_parts = [p for p in os.path.relpath(root_path, base_dir).split(os.sep) if p and p != "."]
+    
+    if rel_parts and rel_parts[0] != "Unknown":
+        customer = rel_parts[0]
+        store = rel_parts[2] if len(rel_parts) >= 3 else (rel_parts[1] if len(rel_parts) >= 2 else "Main")
+        return customer, store
+
+    # Fallback: Parse from filename if folder is a generic folder like Desktop/Incoming
+    clean_name = re.sub(r'(\.tpkj).*$', '', file_name, flags=re.IGNORECASE)
+    parts = clean_name.split("-")
+    if len(parts) >= 2:
+        customer = parts[0].strip()
+        store = f"{parts[0]}-{parts[1]}".strip()
+        return customer, store
+    elif " " in clean_name:
+        customer = clean_name.split(" ")[0]
+        return customer, "Main"
+    
+    return "Packages", "Main"
+
 class PackageScannerWorker(QThread):
     progress_updated = pyqtSignal(int, int, str) # scanned_dirs, packages_found, current_status
     scan_completed = pyqtSignal(list) # List[ScannedPackageItem]
@@ -45,7 +67,8 @@ class PackageScannerWorker(QThread):
             return
 
         pattern = re.compile(r'^(.*\.tpkj)\.(\d+)$', re.IGNORECASE)
-        results: Dict[str, Tuple[int, str, str, int, float]] = {}
+        # Key: (root_directory, base_package_name) -> (version_num, file_name, full_path, size, mtime)
+        results: Dict[Tuple[str, str], Tuple[int, str, str, int, float]] = {}
         dir_count = 0
 
         try:
@@ -54,46 +77,45 @@ class PackageScannerWorker(QThread):
                     break
 
                 dir_count += 1
-                tpkj_files = []
 
                 for f in files:
                     f_lower = f.lower()
                     m = pattern.search(f)
+
                     if m:
+                        base_name = m.group(1).lower()
                         num = int(m.group(2))
-                        tpkj_files.append((num, f, os.path.join(root, f)))
                     elif f_lower.endswith('.tpkj'):
-                        # Direct .tpkj file without trailing version suffix (treated as v1)
-                        tpkj_files.append((1, f, os.path.join(root, f)))
+                        base_name = f_lower
+                        num = 1
                     elif '.tpkj.' in f_lower:
+                        base_name = f_lower.split('.tpkj.')[0] + '.tpkj'
                         nums = re.findall(r'\d+', f_lower.split('.tpkj.')[-1])
                         num = int(nums[-1]) if nums else 0
-                        tpkj_files.append((num, f, os.path.join(root, f)))
+                    else:
+                        continue
 
-                if tpkj_files:
-                    # Pick highest version number in this directory
-                    tpkj_files.sort(key=lambda x: x[0], reverse=True)
-                    highest_num, highest_file, highest_path = tpkj_files[0]
+                    full_path = os.path.join(root, f)
+                    key = (root, base_name)
 
                     try:
-                        st = os.stat(highest_path)
+                        st = os.stat(full_path)
                         size = st.st_size
                         mtime = st.st_mtime
                     except Exception:
                         size = 0
                         mtime = 0.0
 
-                    results[root] = (highest_num, highest_file, highest_path, size, mtime)
+                    if key not in results or num > results[key][0]:
+                        results[key] = (num, f, full_path, size, mtime)
 
                 if dir_count % 100 == 0:
                     rel_current = os.path.relpath(root, self.base_dir)
                     self.progress_updated.emit(dir_count, len(results), f"Scanning {rel_current}...")
 
             package_items: List[ScannedPackageItem] = []
-            for root, (v_num, fname, full_path, size, mtime) in results.items():
-                rel_parts = os.path.relpath(root, self.base_dir).split(os.sep)
-                customer = rel_parts[0] if rel_parts else "Unknown"
-                store = rel_parts[2] if len(rel_parts) >= 3 else (rel_parts[1] if len(rel_parts) >= 2 else "Main")
+            for (root, base_name), (v_num, fname, full_path, size, mtime) in results.items():
+                customer, store = parse_customer_and_store(root, self.base_dir, fname)
 
                 package_items.append(ScannedPackageItem(
                     customer_name=customer,
