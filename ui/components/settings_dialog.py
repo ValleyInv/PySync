@@ -12,8 +12,8 @@ class SettingsDialog(QDialog):
     def __init__(self, config: ConfigManager, parent=None):
         super().__init__(parent)
         self.config = config
-        self.setWindowTitle("⚙ PySync Settings & Transfer Options")
-        self.setFixedWidth(560)
+        self.setWindowTitle("⚙ PySync Settings & Security Options")
+        self.setFixedWidth(580)
         self.init_ui()
 
     def init_ui(self):
@@ -46,6 +46,31 @@ class SettingsDialog(QDialog):
         local_layout.addWidget(self.lbl_effective)
 
         layout.addWidget(local_group)
+
+        # Security & Encryption Section
+        crypto_group = QGroupBox("Security & Package Encryption (AES-256-CBC)")
+        crypto_layout = QVBoxLayout(crypto_group)
+        crypto_layout.setSpacing(8)
+
+        self.enable_crypto_chk = QCheckBox("🔒 Encrypt package contents before sending to Dropbox")
+        self.enable_crypto_chk.setChecked(self.config.get("enable_encryption", False))
+        self.enable_crypto_chk.setStyleSheet("font-weight: bold; color: #fee75c;")
+        crypto_layout.addWidget(self.enable_crypto_chk)
+
+        key_hbox = QHBoxLayout()
+        key_hbox.addWidget(QLabel("Encryption Key / Secret Passphrase:"))
+        self.crypto_key_edit = QLineEdit(self.config.get("encryption_key", ""))
+        self.crypto_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.crypto_key_edit.setPlaceholderText("Shared Secret Passphrase (for PHP decryption)...")
+        key_hbox.addWidget(self.crypto_key_edit, 1)
+        crypto_layout.addLayout(key_hbox)
+
+        crypto_desc = QLabel("Packages are encrypted with AES-256-CBC & 16-byte random IV. Fully decryptable in Laravel PHP via standard openssl_decrypt().")
+        crypto_desc.setStyleSheet("color: #949ba4; font-size: 11px;")
+        crypto_desc.setWordWrap(True)
+        crypto_layout.addWidget(crypto_desc)
+
+        layout.addWidget(crypto_group)
 
         # Package Transfer & Organization Options Section
         transfer_group = QGroupBox("Package Transfer & Subfolder Organization")
@@ -184,6 +209,8 @@ class SettingsDialog(QDialog):
         self.config.set("dropbox_access_token", self.token_edit.text().strip())
         self.config.set("pure_cloud_mode", self.pure_cloud_chk.isChecked())
         self.config.set("preserve_customer_folders", self.preserve_folders_chk.isChecked())
+        self.config.set("enable_encryption", self.enable_crypto_chk.isChecked())
+        self.config.set("encryption_key", self.crypto_key_edit.text().strip())
         try:
             val = int(self.cache_mb_edit.text().strip())
             self.config.set("max_cache_mb", val)

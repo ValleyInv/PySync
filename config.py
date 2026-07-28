@@ -14,6 +14,8 @@ class ConfigManager:
             "target_rel_path": DEFAULT_REL_PATH,
             "scan_target_path": DEFAULT_SCAN_PATH,
             "preserve_customer_folders": True, # Automatically organize transfers into Customer subfolders
+            "enable_encryption": False,        # Encrypt files with AES-256-CBC before transfer
+            "encryption_key": "",              # Secret passphrase for AES-256-CBC
             "custom_local_path": "",
             "dropbox_access_token": "",
             "pure_cloud_mode": False,   # Disk-Saver Pure Cloud API Mode
