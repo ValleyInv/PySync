@@ -14,6 +14,7 @@ class ConfigManager:
             "target_rel_path": DEFAULT_REL_PATH,
             "scan_target_path": DEFAULT_SCAN_PATH,
             "preserve_customer_folders": True, # Automatically organize transfers into Customer subfolders
+            "anonymize_filenames": False,       # Anonymize Customer & Package names (e.g. CUST_a3f8 / PKG_91b2.tpkj)
             "enable_encryption": False,        # Encrypt files with AES-256-CBC before transfer
             "encryption_key": "",              # Secret passphrase for AES-256-CBC
             "custom_local_path": "",

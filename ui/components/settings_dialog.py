@@ -47,18 +47,28 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(local_group)
 
-        # Security & Encryption Section
-        crypto_group = QGroupBox("Security & Package Encryption (AES-256-CBC)")
+        # Security & Privacy Section
+        crypto_group = QGroupBox("Security, Privacy & Encryption")
         crypto_layout = QVBoxLayout(crypto_group)
         crypto_layout.setSpacing(8)
 
-        self.enable_crypto_chk = QCheckBox("🔒 Encrypt package contents before sending to Dropbox")
+        self.anonymize_chk = QCheckBox("🙈 Anonymize Customer & Package Names (Hide Client Names in Dropbox)")
+        self.anonymize_chk.setChecked(self.config.get("anonymize_filenames", False))
+        self.anonymize_chk.setStyleSheet("font-weight: bold; color: #57f287;")
+        crypto_layout.addWidget(self.anonymize_chk)
+
+        anon_desc = QLabel("Replaces customer & package filenames with deterministic hashes (e.g., CUST_7a9f2e / PKG_e83b10.tpkj) so client names are hidden.")
+        anon_desc.setStyleSheet("color: #949ba4; font-size: 11px;")
+        anon_desc.setWordWrap(True)
+        crypto_layout.addWidget(anon_desc)
+
+        self.enable_crypto_chk = QCheckBox("🔒 Encrypt package file contents with AES-256-CBC before transfer")
         self.enable_crypto_chk.setChecked(self.config.get("enable_encryption", False))
         self.enable_crypto_chk.setStyleSheet("font-weight: bold; color: #fee75c;")
         crypto_layout.addWidget(self.enable_crypto_chk)
 
         key_hbox = QHBoxLayout()
-        key_hbox.addWidget(QLabel("Encryption Key / Secret Passphrase:"))
+        key_hbox.addWidget(QLabel("Encryption Key / Passphrase:"))
         self.crypto_key_edit = QLineEdit(self.config.get("encryption_key", ""))
         self.crypto_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.crypto_key_edit.setPlaceholderText("Shared Secret Passphrase (for PHP decryption)...")
@@ -209,6 +219,7 @@ class SettingsDialog(QDialog):
         self.config.set("dropbox_access_token", self.token_edit.text().strip())
         self.config.set("pure_cloud_mode", self.pure_cloud_chk.isChecked())
         self.config.set("preserve_customer_folders", self.preserve_folders_chk.isChecked())
+        self.config.set("anonymize_filenames", self.anonymize_chk.isChecked())
         self.config.set("enable_encryption", self.enable_crypto_chk.isChecked())
         self.config.set("encryption_key", self.crypto_key_edit.text().strip())
         try:

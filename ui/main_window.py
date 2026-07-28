@@ -11,7 +11,7 @@ from config import ConfigManager
 from core.hybrid_engine import HybridEngine
 from core.models import PackageItem
 from core.scanner import ScannedPackageItem
-from core.crypto import encrypt_file_to_bytes
+from core.crypto import encrypt_file_to_bytes, anonymize_name
 
 from ui.components.header_bar import HeaderBar
 from ui.components.sidebar import Sidebar
@@ -146,6 +146,8 @@ class MainWindow(QMainWindow):
             count_str += f" / {self.current_sub_path}"
         if is_pure_cloud and cloud_ok:
             count_str += " [⚡ Disk Saver Mode: Active]"
+        if self.config.get("anonymize_filenames", False):
+            count_str += " [🙈 Anonymized Names: Active]"
         if self.config.get("enable_encryption", False):
             count_str += " [🔒 Encryption: Active]"
         self.transfer_bar.set_status(count_str)
@@ -245,11 +247,13 @@ class MainWindow(QMainWindow):
         count = 0
         is_pure_cloud = self.config.get("pure_cloud_mode", False) and self.engine.cloud_provider.is_connected()
         use_crypto = self.config.get("enable_encryption", False)
+        use_anon = self.config.get("anonymize_filenames", False)
         enc_key = self.config.get("encryption_key", "").strip()
 
         for src in file_paths:
             orig_name = os.path.basename(src)
             clean_name = get_clean_tpkj_filename(orig_name)
+            dest_name = anonymize_name(clean_name, prefix="PKG") + ".tpkj" if use_anon else clean_name
 
             src_to_send = src
             temp_enc_file = None
@@ -257,22 +261,22 @@ class MainWindow(QMainWindow):
             if use_crypto and enc_key:
                 enc_bytes = encrypt_file_to_bytes(src, enc_key)
                 if enc_bytes:
-                    temp_enc_file = os.path.join(tempfile.gettempdir(), f"enc_{clean_name}")
+                    temp_enc_file = os.path.join(tempfile.gettempdir(), f"enc_{dest_name}")
                     with open(temp_enc_file, "wb") as ef:
                         ef.write(enc_bytes)
                     src_to_send = temp_enc_file
 
             if is_pure_cloud:
-                cloud_dest = f"{self.config.get_cloud_target_path()}/{self.current_sub_path}/{clean_name}".replace("//", "/")
+                cloud_dest = f"{self.config.get_cloud_target_path()}/{self.current_sub_path}/{dest_name}".replace("//", "/")
                 ok, msg = self.engine.cloud_provider.upload_file(src_to_send, cloud_dest)
                 if ok:
                     count += 1
             else:
-                res = self.engine.local_provider.copy_file_in(src_to_send, self.current_sub_path, override_filename=clean_name)
+                res = self.engine.local_provider.copy_file_in(src_to_send, self.current_sub_path, override_filename=dest_name)
                 if res:
                     count += 1
                     if self.engine.cloud_provider.is_connected():
-                        cloud_dest = f"{self.config.get_cloud_target_path()}/{self.current_sub_path}/{clean_name}".replace("//", "/")
+                        cloud_dest = f"{self.config.get_cloud_target_path()}/{self.current_sub_path}/{dest_name}".replace("//", "/")
                         self.engine.cloud_provider.upload_file(res, cloud_dest)
 
             if temp_enc_file and os.path.exists(temp_enc_file):
@@ -298,14 +302,22 @@ class MainWindow(QMainWindow):
         is_pure_cloud = self.config.get("pure_cloud_mode", False) and self.engine.cloud_provider.is_connected()
         preserve_folders = self.config.get("preserve_customer_folders", True)
         use_crypto = self.config.get("enable_encryption", False)
+        use_anon = self.config.get("anonymize_filenames", False)
         enc_key = self.config.get("encryption_key", "").strip()
 
         for pkg in packages:
             src = pkg.full_path
             clean_name = get_clean_tpkj_filename(pkg.file_name)
 
-            if preserve_folders and pkg.customer_name and pkg.customer_name != "Unknown":
-                dest_sub = f"{self.current_sub_path}/{pkg.customer_name}".strip("/").replace("//", "/")
+            if use_anon:
+                cust_folder = anonymize_name(pkg.customer_name, prefix="CUST")
+                dest_file_name = anonymize_name(clean_name, prefix="PKG") + ".tpkj"
+            else:
+                cust_folder = pkg.customer_name
+                dest_file_name = clean_name
+
+            if preserve_folders and cust_folder and cust_folder != "Unknown":
+                dest_sub = f"{self.current_sub_path}/{cust_folder}".strip("/").replace("//", "/")
             else:
                 dest_sub = self.current_sub_path
 
@@ -315,22 +327,22 @@ class MainWindow(QMainWindow):
             if use_crypto and enc_key:
                 enc_bytes = encrypt_file_to_bytes(src, enc_key)
                 if enc_bytes:
-                    temp_enc_file = os.path.join(tempfile.gettempdir(), f"enc_{clean_name}")
+                    temp_enc_file = os.path.join(tempfile.gettempdir(), f"enc_{dest_file_name}")
                     with open(temp_enc_file, "wb") as ef:
                         ef.write(enc_bytes)
                     src_to_send = temp_enc_file
 
             if is_pure_cloud:
-                cloud_dest = f"{self.config.get_cloud_target_path()}/{dest_sub}/{clean_name}".replace("//", "/")
+                cloud_dest = f"{self.config.get_cloud_target_path()}/{dest_sub}/{dest_file_name}".replace("//", "/")
                 ok, msg = self.engine.cloud_provider.upload_file(src_to_send, cloud_dest)
                 if ok:
                     count += 1
             else:
-                res = self.engine.local_provider.copy_file_in(src_to_send, dest_sub, override_filename=clean_name)
+                res = self.engine.local_provider.copy_file_in(src_to_send, dest_sub, override_filename=dest_file_name)
                 if res:
                     count += 1
                     if self.engine.cloud_provider.is_connected():
-                        cloud_dest = f"{self.config.get_cloud_target_path()}/{dest_sub}/{clean_name}".replace("//", "/")
+                        cloud_dest = f"{self.config.get_cloud_target_path()}/{dest_sub}/{dest_file_name}".replace("//", "/")
                         self.engine.cloud_provider.upload_file(res, cloud_dest)
 
             if temp_enc_file and os.path.exists(temp_enc_file):
@@ -342,11 +354,13 @@ class MainWindow(QMainWindow):
         self.transfer_bar.hide_progress()
         if count > 0:
             self.load_directory(self.current_sub_path)
-            msg_str = f"Successfully sent {count} package(s) to Dropbox as clean '.tpkj' files!"
+            msg_str = f"Successfully sent {count} package(s) to Dropbox!"
+            if use_anon:
+                msg_str += "\n🙈 Customer & Package names were anonymized."
             if use_crypto:
-                msg_str += "\n\n🔒 Files were encrypted with AES-256-CBC."
+                msg_str += "\n🔒 File contents were encrypted with AES-256-CBC."
             if preserve_folders:
-                msg_str += "\n📁 Packages were organized into Customer subfolders."
+                msg_str += "\n📁 Packages were organized into subfolders."
             QMessageBox.information(self, "Packages Transferred", msg_str)
 
     def _on_settings_clicked(self):

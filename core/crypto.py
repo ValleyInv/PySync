@@ -8,6 +8,12 @@ def derive_aes_key(passphrase: str) -> bytes:
     """Derives a 256-bit (32-byte) binary key from secret passphrase using SHA-256."""
     return hashlib.sha256(passphrase.encode("utf-8")).digest()
 
+def anonymize_name(name: str, prefix: str = "CUST", salt: str = "PySyncSalt") -> str:
+    """Generates a clean, deterministic anonymized ID from a customer or package name."""
+    clean = name.strip().lower()
+    h = hashlib.sha256(f"{salt}:{clean}".encode("utf-8")).hexdigest()[:12]
+    return f"{prefix}_{h}"
+
 def encrypt_bytes(data: bytes, passphrase: str) -> bytes:
     """Encrypts raw bytes using AES-256-CBC with a 16-byte random IV and PKCS7 padding."""
     key = derive_aes_key(passphrase)
