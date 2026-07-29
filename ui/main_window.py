@@ -4,9 +4,11 @@ import time
 import tempfile
 from typing import List, Optional
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QFileDialog, QInputDialog, QMessageBox, QApplication
+    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QFileDialog, QInputDialog,
+    QMessageBox, QApplication, QSystemTrayIcon, QMenu, QStyle
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QEvent, QTimer
+from PyQt6.QtGui import QAction
 
 from config import ConfigManager
 from core.hybrid_engine import HybridEngine
@@ -23,6 +25,7 @@ from ui.components.transfer_bar import TransferBar
 from ui.components.settings_dialog import SettingsDialog
 from ui.components.scanner_dialog import ScannerDialog
 from ui.components.dropbox_view_dialog import DropboxViewDialog
+from ui.components.transfer_dialog import TransferProgressDialog
 from ui.styles import DARK_THEME, LIGHT_THEME
 
 def get_clean_tpkj_filename(filename: str) -> str:
@@ -59,8 +62,80 @@ class MainWindow(QMainWindow):
         self.resize(1150, 700)
 
         self.init_ui()
+        self.init_system_tray()
         self.apply_theme(self.config.get("theme", "dark"))
         self.load_directory(self.current_sub_path)
+
+    def init_system_tray(self):
+        """Initializes system tray icon and context menu."""
+        self.tray_icon = QSystemTrayIcon(self)
+        
+        # Tray Icon Graphic
+        icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon)
+        self.tray_icon.setIcon(icon)
+        self.tray_icon.setToolTip("PySync — Titan Inventory Sync")
+
+        # Context Menu
+        tray_menu = QMenu(self)
+
+        show_act = QAction("▶ Show PySync", self)
+        show_act.triggered.connect(self._restore_from_tray)
+        tray_menu.addAction(show_act)
+
+        scan_act = QAction("🔍 Scan Packages...", self)
+        scan_act.triggered.connect(self._on_scan_packages_clicked)
+        tray_menu.addAction(scan_act)
+
+        view_act = QAction("📦 View Dropbox Packages...", self)
+        view_act.triggered.connect(self._on_view_dropbox_clicked)
+        tray_menu.addAction(view_act)
+
+        tray_menu.addSeparator()
+
+        settings_act = QAction("⚙ Settings...", self)
+        settings_act.triggered.connect(self._on_settings_clicked)
+        tray_menu.addAction(settings_act)
+
+        tray_menu.addSeparator()
+
+        quit_act = QAction("❌ Exit PySync", self)
+        quit_act.triggered.connect(self._force_quit_app)
+        tray_menu.addAction(quit_act)
+
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.activated.connect(self._on_tray_activated)
+        self.tray_icon.show()
+
+    def changeEvent(self, event):
+        """Hides window from taskbar to system tray when minimized."""
+        if event.type() == QEvent.Type.WindowStateChange:
+            if self.isMinimized() and self.config.get("minimize_to_tray", True):
+                QTimer.singleShot(0, self.hide)
+                if not getattr(self, "_tray_notified", False):
+                    self.tray_icon.showMessage(
+                        "PySync",
+                        "PySync is minimized to your system tray. Click the tray icon to restore.",
+                        QSystemTrayIcon.MessageIcon.Information,
+                        3000
+                    )
+                    self._tray_notified = True
+        super().changeEvent(event)
+
+    def _restore_from_tray(self):
+        self.showNormal()
+        self.activateWindow()
+        self.raise_()
+
+    def _on_tray_activated(self, reason):
+        if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick):
+            if self.isVisible() and not self.isMinimized():
+                self.hide()
+            else:
+                self._restore_from_tray()
+
+    def _force_quit_app(self):
+        self.tray_icon.hide()
+        QApplication.quit()
 
     def init_ui(self):
         main_widget = QWidget()
@@ -248,63 +323,13 @@ class MainWindow(QMainWindow):
             self._on_files_dropped(files)
 
     def _on_files_dropped(self, file_paths: List[str]):
-        count = 0
-        total_files = len(file_paths)
-        is_pure_cloud = self.config.get("pure_cloud_mode", False) and self.engine.cloud_provider.is_connected()
-        use_crypto = self.config.get("enable_encryption", False)
-        use_anon = self.config.get("anonymize_filenames", False)
-        enc_key = self.config.get("encryption_key", "").strip()
+        if not file_paths:
+            return
 
-        index_updates = {}
+        dlg = TransferProgressDialog(self.config, self.engine, file_paths, self.current_sub_path, self)
+        dlg.exec()
 
-        for idx, src in enumerate(file_paths):
-            orig_name = os.path.basename(src)
-            clean_name = get_clean_tpkj_filename(orig_name)
-            
-            if use_anon:
-                dest_name = anonymize_name(clean_name, prefix="PKG") + ".tpkj"
-                index_updates[dest_name] = clean_name
-            else:
-                dest_name = clean_name
-
-            src_to_send = src
-            temp_enc_file = None
-
-            if use_crypto and enc_key:
-                enc_bytes = encrypt_file_to_bytes(src, enc_key)
-                if enc_bytes:
-                    temp_enc_file = os.path.join(tempfile.gettempdir(), f"enc_{dest_name}")
-                    with open(temp_enc_file, "wb") as ef:
-                        ef.write(enc_bytes)
-                    src_to_send = temp_enc_file
-
-            pct = int(((idx + 1) / total_files) * 100)
-            self.transfer_bar.show_progress(pct)
-            self.transfer_bar.set_status(f"Transferring item {idx + 1} of {total_files}: {dest_name}")
-            QApplication.processEvents()
-
-            if is_pure_cloud:
-                cloud_dest = f"{self.config.get_cloud_target_path()}/{self.current_sub_path}/{dest_name}".replace("//", "/")
-                ok, msg = self.engine.cloud_provider.upload_file(src_to_send, cloud_dest, status_callback=self.transfer_bar.set_status)
-                if ok:
-                    count += 1
-                time.sleep(0.2)  # Pacing pause to prevent triggering Dropbox API rate limits
-            else:
-                res = self.engine.local_provider.copy_file_in(src_to_send, self.current_sub_path, override_filename=dest_name)
-                if res:
-                    count += 1
-                    # In local/hybrid mode, Dropbox desktop sync client automatically uploads local folder changes.
-                    # Secondary API upload is only called if local copy is disabled or pure cloud mode is active.
-
-            if temp_enc_file and os.path.exists(temp_enc_file):
-                try:
-                    os.remove(temp_enc_file)
-                except Exception:
-                    pass
-
-        if index_updates:
-            update_anonymization_index(self.config, index_updates)
-
+        count = dlg.transferred_count
         if count > 0:
             self.load_directory(self.current_sub_path)
             self.transfer_bar.set_status(f"Uploaded {count} file(s) successfully.")
@@ -320,86 +345,33 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def _on_send_scanned_packages(self, packages: List[ScannedPackageItem]):
-        total_pkgs = len(packages)
-        self.transfer_bar.set_status(f"Transferring {total_pkgs} package(s) to Dropbox...")
-        self.transfer_bar.show_progress(5)
+        if not packages:
+            return
 
-        count = 0
-        is_pure_cloud = self.config.get("pure_cloud_mode", False) and self.engine.cloud_provider.is_connected()
-        preserve_folders = self.config.get("preserve_customer_folders", True)
-        use_crypto = self.config.get("enable_encryption", False)
-        use_anon = self.config.get("anonymize_filenames", False)
-        enc_key = self.config.get("encryption_key", "").strip()
+        dlg = TransferProgressDialog(self.config, self.engine, packages, self.current_sub_path, self)
+        dlg.exec()
 
-        index_updates = {}
+        count = dlg.transferred_count
+        was_cancelled = dlg.was_cancelled
 
-        for idx, pkg in enumerate(packages):
-            src = pkg.full_path
-            clean_name = get_clean_tpkj_filename(pkg.file_name)
-
-            if use_anon:
-                cust_folder = anonymize_name(pkg.customer_name, prefix="CUST")
-                dest_file_name = anonymize_name(clean_name, prefix="PKG") + ".tpkj"
-                index_updates[cust_folder] = pkg.customer_name
-                index_updates[dest_file_name] = clean_name
-            else:
-                cust_folder = pkg.customer_name
-                dest_file_name = clean_name
-
-            if preserve_folders and cust_folder and cust_folder != "Unknown":
-                dest_sub = f"{self.current_sub_path}/{cust_folder}".strip("/").replace("//", "/")
-            else:
-                dest_sub = self.current_sub_path
-
-            src_to_send = src
-            temp_enc_file = None
-
-            if use_crypto and enc_key:
-                enc_bytes = encrypt_file_to_bytes(src, enc_key)
-                if enc_bytes:
-                    temp_enc_file = os.path.join(tempfile.gettempdir(), f"enc_{dest_file_name}")
-                    with open(temp_enc_file, "wb") as ef:
-                        ef.write(enc_bytes)
-                    src_to_send = temp_enc_file
-
-            pct = int(((idx + 1) / total_pkgs) * 100)
-            self.transfer_bar.show_progress(pct)
-            self.transfer_bar.set_status(f"Sending package {idx + 1} of {total_pkgs}: {dest_file_name}")
-            QApplication.processEvents()
-
-            if is_pure_cloud:
-                cloud_dest = f"{self.config.get_cloud_target_path()}/{dest_sub}/{dest_file_name}".replace("//", "/")
-                ok, msg = self.engine.cloud_provider.upload_file(src_to_send, cloud_dest, status_callback=self.transfer_bar.set_status)
-                if ok:
-                    count += 1
-                time.sleep(0.2)  # Pacing pause to prevent triggering Dropbox API rate limits
-            else:
-                res = self.engine.local_provider.copy_file_in(src_to_send, dest_sub, override_filename=dest_file_name)
-                if res:
-                    count += 1
-                    # In local/hybrid mode, Dropbox desktop sync client automatically uploads local folder changes.
-                    # Secondary API upload is only called if local copy is disabled or pure cloud mode is active.
-
-            if temp_enc_file and os.path.exists(temp_enc_file):
-                try:
-                    os.remove(temp_enc_file)
-                except Exception:
-                    pass
-
-        if index_updates:
-            update_anonymization_index(self.config, index_updates)
-
-        self.transfer_bar.hide_progress()
-        if count > 0:
+        if count > 0 or was_cancelled:
             self.load_directory(self.current_sub_path)
-            msg_str = f"Successfully sent {count} package(s) to Dropbox!"
-            if use_anon:
+            
+            if was_cancelled:
+                self.transfer_bar.set_status(f"Transfer cancelled. {count} package(s) were sent.")
+                msg_str = f"Transfer cancelled by user.\n{count} package(s) were sent to Dropbox before cancellation."
+            else:
+                self.transfer_bar.set_status(f"Successfully sent {count} package(s) to Dropbox!")
+                msg_str = f"Successfully sent {count} package(s) to Dropbox!"
+
+            if self.config.get("anonymize_filenames", False):
                 msg_str += "\n🙈 Customer & Package names were anonymized."
-            if use_crypto:
+            if self.config.get("enable_encryption", False):
                 msg_str += "\n🔒 File contents were encrypted with AES-256-CBC."
-            if preserve_folders:
+            if self.config.get("preserve_customer_folders", True):
                 msg_str += "\n📁 Packages were organized into subfolders."
-            QMessageBox.information(self, "Packages Transferred", msg_str)
+
+            QMessageBox.information(self, "Transfer Summary", msg_str)
 
     def _on_settings_clicked(self):
         dlg = SettingsDialog(self.config, self)

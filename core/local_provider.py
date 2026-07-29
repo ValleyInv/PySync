@@ -82,6 +82,12 @@ class LocalProvider:
             print(f"Error deleting '{local_path}': {e}")
             return False
 
+    def file_exists(self, target_sub_path: str, file_name: str) -> bool:
+        """Checks if a file exists locally in destination."""
+        dest_dir = os.path.join(self.target_base_path, target_sub_path)
+        dest_path = os.path.join(dest_dir, file_name)
+        return os.path.exists(dest_path)
+
     def copy_file_in(self, src_file_path: str, target_sub_path: str = "", override_filename: str = "") -> Optional[str]:
         """Copies an external file into the packages folder, with optional filename override."""
         try:

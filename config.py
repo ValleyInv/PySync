@@ -19,10 +19,14 @@ class ConfigManager:
             "encryption_key": "",              # Secret passphrase for AES-256-CBC
             "custom_local_path": "",
             "dropbox_access_token": "",
+            "dropbox_refresh_token": "",
+            "dropbox_app_key": "",
+            "dropbox_app_secret": "",
             "pure_cloud_mode": False,   # Disk-Saver Pure Cloud API Mode
             "max_cache_mb": 500,        # Max temp cache size before auto purge
             "theme": "dark",
             "view_mode": "table",       # 'table' or 'grid'
+            "minimize_to_tray": True,   # Hide from taskbar when minimized to system tray
             "auto_sync": True
         }
         self.load()

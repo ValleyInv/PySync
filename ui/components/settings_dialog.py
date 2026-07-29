@@ -119,14 +119,36 @@ class SettingsDialog(QDialog):
         token_hbox = QHBoxLayout()
         self.token_edit = QLineEdit(self.config.get("dropbox_access_token"))
         self.token_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.token_edit.setPlaceholderText("Paste Dropbox Access Token here...")
+        self.token_edit.setPlaceholderText("Access Token (4-hour temporary)...")
         token_hbox.addWidget(self.token_edit)
 
-        test_btn = QPushButton("🔌 Test Token")
+        test_btn = QPushButton("🔌 Test Connection")
         test_btn.clicked.connect(self._test_cloud_token)
         token_hbox.addWidget(test_btn)
 
         cloud_layout.addLayout(token_hbox)
+
+        # Advanced Refresh Token Section (Non-expiring)
+        adv_ref_lbl = QLabel("Permanent Refresh Token (Optional - Non-expiring):")
+        adv_ref_lbl.setStyleSheet("font-weight: bold; font-size: 11px; margin-top: 4px;")
+        cloud_layout.addWidget(adv_ref_lbl)
+
+        self.refresh_token_edit = QLineEdit(self.config.get("dropbox_refresh_token", ""))
+        self.refresh_token_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.refresh_token_edit.setPlaceholderText("OAuth Refresh Token (never expires)...")
+        cloud_layout.addWidget(self.refresh_token_edit)
+
+        keys_hbox = QHBoxLayout()
+        self.app_key_edit = QLineEdit(self.config.get("dropbox_app_key", ""))
+        self.app_key_edit.setPlaceholderText("App Key...")
+        keys_hbox.addWidget(self.app_key_edit)
+
+        self.app_secret_edit = QLineEdit(self.config.get("dropbox_app_secret", ""))
+        self.app_secret_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.app_secret_edit.setPlaceholderText("App Secret...")
+        keys_hbox.addWidget(self.app_secret_edit)
+
+        cloud_layout.addLayout(keys_hbox)
 
         # Disk Saver Checkbox
         self.pure_cloud_chk = QCheckBox("⚡ Enable Pure Cloud Mode (Zero Disk Space Usage)")
@@ -162,6 +184,10 @@ class SettingsDialog(QDialog):
         self.theme_combo.setCurrentIndex(0 if current_theme == "dark" else 1)
         theme_hbox.addWidget(self.theme_combo)
         pref_layout.addLayout(theme_hbox)
+
+        self.minimize_tray_chk = QCheckBox("📌 Minimize to System Tray (Hide from Taskbar when minimized)")
+        self.minimize_tray_chk.setChecked(self.config.get("minimize_to_tray", True))
+        pref_layout.addWidget(self.minimize_tray_chk)
 
         layout.addWidget(pref_group)
 
@@ -207,7 +233,11 @@ class SettingsDialog(QDialog):
 
     def _test_cloud_token(self):
         token = self.token_edit.text().strip()
-        provider = CloudProvider(token)
+        ref_token = self.refresh_token_edit.text().strip()
+        app_key = self.app_key_edit.text().strip()
+        app_secret = self.app_secret_edit.text().strip()
+
+        provider = CloudProvider(access_token=token, refresh_token=ref_token, app_key=app_key, app_secret=app_secret)
         ok, msg = provider.test_connection()
         if ok:
             QMessageBox.information(self, "Dropbox API Connection", f"Success!\n{msg}")
@@ -217,6 +247,9 @@ class SettingsDialog(QDialog):
     def _save_settings(self):
         self.config.set("local_dropbox_root", self.local_path_edit.text().strip())
         self.config.set("dropbox_access_token", self.token_edit.text().strip())
+        self.config.set("dropbox_refresh_token", self.refresh_token_edit.text().strip())
+        self.config.set("dropbox_app_key", self.app_key_edit.text().strip())
+        self.config.set("dropbox_app_secret", self.app_secret_edit.text().strip())
         self.config.set("pure_cloud_mode", self.pure_cloud_chk.isChecked())
         self.config.set("preserve_customer_folders", self.preserve_folders_chk.isChecked())
         self.config.set("anonymize_filenames", self.anonymize_chk.isChecked())
@@ -230,5 +263,6 @@ class SettingsDialog(QDialog):
 
         theme_val = "dark" if self.theme_combo.currentIndex() == 0 else "light"
         self.config.set("theme", theme_val)
+        self.config.set("minimize_to_tray", self.minimize_tray_chk.isChecked())
         self.settings_saved.emit()
         self.accept()

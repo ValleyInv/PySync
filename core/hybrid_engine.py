@@ -10,12 +10,31 @@ class HybridEngine:
     def __init__(self, config: ConfigManager):
         self.config = config
         self.local_provider = LocalProvider(config.get_effective_target_path())
-        self.cloud_provider = CloudProvider(config.get("dropbox_access_token", ""))
+        self.cloud_provider = CloudProvider(
+            access_token=config.get("dropbox_access_token", ""),
+            refresh_token=config.get("dropbox_refresh_token", ""),
+            app_key=config.get("dropbox_app_key", ""),
+            app_secret=config.get("dropbox_app_secret", "")
+        )
 
     def reload_config(self):
         """Reload providers after settings update."""
         self.local_provider = LocalProvider(self.config.get_effective_target_path())
-        self.cloud_provider = CloudProvider(self.config.get("dropbox_access_token", ""))
+        self.cloud_provider = CloudProvider(
+            access_token=self.config.get("dropbox_access_token", ""),
+            refresh_token=self.config.get("dropbox_refresh_token", ""),
+            app_key=self.config.get("dropbox_app_key", ""),
+            app_secret=self.config.get("dropbox_app_secret", "")
+        )
+
+    def file_exists(self, dest_sub: str, dest_file_name: str) -> bool:
+        """Checks if package file exists either locally or in pure cloud mode."""
+        is_pure_cloud = self.config.get("pure_cloud_mode", False) and self.cloud_provider.is_connected()
+        if is_pure_cloud:
+            cloud_dest = f"{self.config.get_cloud_target_path()}/{dest_sub}/{dest_file_name}".replace("//", "/")
+            return self.cloud_provider.file_exists(cloud_dest)
+        else:
+            return self.local_provider.file_exists(dest_sub, dest_file_name)
 
     def list_items(self, sub_path: str = "") -> List[PackageItem]:
         """Lists items. If Pure Cloud Mode is active, lists directly via API to save disk space."""

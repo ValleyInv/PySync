@@ -7,13 +7,13 @@ use Illuminate\Console\Command;
 
 class ProcessTpkjPackage extends Command
 {
-    protected $signature = 'tpkj:process {file : Path to .tpkj package} {--key= : Secret passphrase configured in PySync}';
-    protected $description = 'Decodes directory/package metadata and decrypts .tpkj package for local processing';
+    protected $signature = 'tpkj:process {file : Path to .tpkj package or filename in storage/app/uploads} {--key= : Optional passphrase override if different from PYSYNC_ENCRYPTION_KEY in .env}';
+    protected $description = 'Decodes directory/package metadata and decrypts .tpkj package using PYSYNC_ENCRYPTION_KEY from .env';
 
     public function handle(TpkjPackageProcessor $processor): int
     {
         $filePath = $this->argument('file');
-        $customKey = $this->option('key');
+        $customKey = $this->option('key') ?: env('PYSYNC_ENCRYPTION_KEY', config('services.pysync.key', ''));
 
         if ($customKey) {
             $processor->setPassphrase($customKey);
@@ -35,7 +35,7 @@ class ProcessTpkjPackage extends Command
         $outputDir = storage_path("app/extracted/{$metadata['store_id']}");
         
         try {
-            $result = $processor->processAndExtract($filePath, $outputDir, $customKey);
+            $result = $processor->processAndExtract($filePath, $outputDir);
             $this->info("Package successfully decrypted and extracted to: {$result['extracted_path']}");
             return Command::SUCCESS;
         } catch (\Exception $e) {

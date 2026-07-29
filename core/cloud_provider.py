@@ -13,12 +13,23 @@ except ImportError:
     HAS_DROPBOX_SDK = False
 
 class CloudProvider:
-    def __init__(self, access_token: str = ""):
+    def __init__(self, access_token: str = "", refresh_token: str = "", app_key: str = "", app_secret: str = ""):
         self.access_token = access_token.strip()
+        self.refresh_token = refresh_token.strip()
+        self.app_key = app_key.strip()
+        self.app_secret = app_secret.strip()
         self.client = None
-        if HAS_DROPBOX_SDK and self.access_token:
+
+        if HAS_DROPBOX_SDK:
             try:
-                self.client = dropbox.Dropbox(self.access_token)
+                if self.refresh_token and self.app_key and self.app_secret:
+                    self.client = dropbox.Dropbox(
+                        oauth2_refresh_token=self.refresh_token,
+                        app_key=self.app_key,
+                        app_secret=self.app_secret
+                    )
+                elif self.access_token:
+                    self.client = dropbox.Dropbox(self.access_token)
             except Exception as e:
                 print(f"Error initializing Dropbox client: {e}")
 
@@ -50,17 +61,35 @@ class CloudProvider:
     def is_connected(self) -> bool:
         return self.client is not None
 
+    def file_exists(self, cloud_path: str) -> bool:
+        """Checks if a file exists on Dropbox Cloud."""
+        if not self.is_connected():
+            return False
+        try:
+            self.client.files_get_metadata(cloud_path)
+            return True
+        except Exception:
+            return False
+
     def test_connection(self) -> Tuple[bool, str]:
         if not HAS_DROPBOX_SDK:
             return False, "Dropbox Python SDK is not installed."
-        if not self.access_token:
-            return False, "No Access Token configured. Add your token in Settings."
+        if not self.access_token and not (self.refresh_token and self.app_key and self.app_secret):
+            return False, "No Access Token or Refresh Token credentials configured in Settings."
         try:
-            self.client = dropbox.Dropbox(self.access_token)
+            if self.refresh_token and self.app_key and self.app_secret:
+                self.client = dropbox.Dropbox(
+                    oauth2_refresh_token=self.refresh_token,
+                    app_key=self.app_key,
+                    app_secret=self.app_secret
+                )
+            else:
+                self.client = dropbox.Dropbox(self.access_token)
+
             account = self.client.users_get_current_account()
             return True, f"Connected to Dropbox as {account.name.display_name} ({account.email})"
         except AuthError:
-            return False, "Invalid or expired Dropbox Access Token."
+            return False, "Invalid or expired Dropbox Access Token / Refresh Token."
         except Exception as e:
             return False, f"Connection failed: {e}"
 
