@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import tempfile
 from typing import List, Optional
 from PyQt6.QtWidgets import (
@@ -248,6 +249,7 @@ class MainWindow(QMainWindow):
 
     def _on_files_dropped(self, file_paths: List[str]):
         count = 0
+        total_files = len(file_paths)
         is_pure_cloud = self.config.get("pure_cloud_mode", False) and self.engine.cloud_provider.is_connected()
         use_crypto = self.config.get("enable_encryption", False)
         use_anon = self.config.get("anonymize_filenames", False)
@@ -255,7 +257,7 @@ class MainWindow(QMainWindow):
 
         index_updates = {}
 
-        for src in file_paths:
+        for idx, src in enumerate(file_paths):
             orig_name = os.path.basename(src)
             clean_name = get_clean_tpkj_filename(orig_name)
             
@@ -276,18 +278,23 @@ class MainWindow(QMainWindow):
                         ef.write(enc_bytes)
                     src_to_send = temp_enc_file
 
+            pct = int(((idx + 1) / total_files) * 100)
+            self.transfer_bar.show_progress(pct)
+            self.transfer_bar.set_status(f"Transferring item {idx + 1} of {total_files}: {dest_name}")
+            QApplication.processEvents()
+
             if is_pure_cloud:
                 cloud_dest = f"{self.config.get_cloud_target_path()}/{self.current_sub_path}/{dest_name}".replace("//", "/")
-                ok, msg = self.engine.cloud_provider.upload_file(src_to_send, cloud_dest)
+                ok, msg = self.engine.cloud_provider.upload_file(src_to_send, cloud_dest, status_callback=self.transfer_bar.set_status)
                 if ok:
                     count += 1
+                time.sleep(0.2)  # Pacing pause to prevent triggering Dropbox API rate limits
             else:
                 res = self.engine.local_provider.copy_file_in(src_to_send, self.current_sub_path, override_filename=dest_name)
                 if res:
                     count += 1
-                    if self.engine.cloud_provider.is_connected():
-                        cloud_dest = f"{self.config.get_cloud_target_path()}/{self.current_sub_path}/{dest_name}".replace("//", "/")
-                        self.engine.cloud_provider.upload_file(res, cloud_dest)
+                    # In local/hybrid mode, Dropbox desktop sync client automatically uploads local folder changes.
+                    # Secondary API upload is only called if local copy is disabled or pure cloud mode is active.
 
             if temp_enc_file and os.path.exists(temp_enc_file):
                 try:
@@ -301,6 +308,7 @@ class MainWindow(QMainWindow):
         if count > 0:
             self.load_directory(self.current_sub_path)
             self.transfer_bar.set_status(f"Uploaded {count} file(s) successfully.")
+            self.transfer_bar.hide_progress()
 
     def _on_scan_packages_clicked(self):
         dlg = ScannerDialog(self.config, self)
@@ -312,8 +320,9 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def _on_send_scanned_packages(self, packages: List[ScannedPackageItem]):
-        self.transfer_bar.set_status(f"Transferring {len(packages)} package(s) to Dropbox...")
-        self.transfer_bar.show_progress(10)
+        total_pkgs = len(packages)
+        self.transfer_bar.set_status(f"Transferring {total_pkgs} package(s) to Dropbox...")
+        self.transfer_bar.show_progress(5)
 
         count = 0
         is_pure_cloud = self.config.get("pure_cloud_mode", False) and self.engine.cloud_provider.is_connected()
@@ -324,7 +333,7 @@ class MainWindow(QMainWindow):
 
         index_updates = {}
 
-        for pkg in packages:
+        for idx, pkg in enumerate(packages):
             src = pkg.full_path
             clean_name = get_clean_tpkj_filename(pkg.file_name)
 
@@ -353,18 +362,23 @@ class MainWindow(QMainWindow):
                         ef.write(enc_bytes)
                     src_to_send = temp_enc_file
 
+            pct = int(((idx + 1) / total_pkgs) * 100)
+            self.transfer_bar.show_progress(pct)
+            self.transfer_bar.set_status(f"Sending package {idx + 1} of {total_pkgs}: {dest_file_name}")
+            QApplication.processEvents()
+
             if is_pure_cloud:
                 cloud_dest = f"{self.config.get_cloud_target_path()}/{dest_sub}/{dest_file_name}".replace("//", "/")
-                ok, msg = self.engine.cloud_provider.upload_file(src_to_send, cloud_dest)
+                ok, msg = self.engine.cloud_provider.upload_file(src_to_send, cloud_dest, status_callback=self.transfer_bar.set_status)
                 if ok:
                     count += 1
+                time.sleep(0.2)  # Pacing pause to prevent triggering Dropbox API rate limits
             else:
                 res = self.engine.local_provider.copy_file_in(src_to_send, dest_sub, override_filename=dest_file_name)
                 if res:
                     count += 1
-                    if self.engine.cloud_provider.is_connected():
-                        cloud_dest = f"{self.config.get_cloud_target_path()}/{dest_sub}/{dest_file_name}".replace("//", "/")
-                        self.engine.cloud_provider.upload_file(res, cloud_dest)
+                    # In local/hybrid mode, Dropbox desktop sync client automatically uploads local folder changes.
+                    # Secondary API upload is only called if local copy is disabled or pure cloud mode is active.
 
             if temp_enc_file and os.path.exists(temp_enc_file):
                 try:

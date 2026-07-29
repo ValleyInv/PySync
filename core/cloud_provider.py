@@ -1,11 +1,13 @@
 import os
 import io
-from typing import List, Tuple, Optional
+import time
+import random
+from typing import List, Tuple, Optional, Callable
 from core.models import PackageItem
 
 try:
     import dropbox
-    from dropbox.exceptions import ApiError, AuthError
+    from dropbox.exceptions import ApiError, AuthError, RateLimitError
     HAS_DROPBOX_SDK = True
 except ImportError:
     HAS_DROPBOX_SDK = False
@@ -19,6 +21,31 @@ class CloudProvider:
                 self.client = dropbox.Dropbox(self.access_token)
             except Exception as e:
                 print(f"Error initializing Dropbox client: {e}")
+
+    def _execute_with_rate_limit_retry(self, operation_func: Callable, max_retries: int = 5, status_callback: Optional[Callable[[str], None]] = None):
+        """Executes a Dropbox API operation with exponential backoff for RateLimitError / 429 errors."""
+        for attempt in range(max_retries):
+            try:
+                return operation_func()
+            except RateLimitError as e:
+                wait_time = getattr(e, "backoff", None) or (1.5 * (2 ** attempt) + random.uniform(0.1, 0.5))
+                msg = f"⏳ Dropbox RateLimitError hit. Pausing for {wait_time:.1f}s (Attempt {attempt+1}/{max_retries})..."
+                print(msg)
+                if status_callback:
+                    status_callback(msg)
+                time.sleep(wait_time)
+            except ApiError as e:
+                err_str = str(e).lower()
+                if "too_many_write_operations" in err_str or "rate" in err_str or "429" in err_str:
+                    wait_time = (1.5 * (2 ** attempt) + random.uniform(0.2, 0.8))
+                    msg = f"⏳ Dropbox write rate limit detected. Pausing for {wait_time:.1f}s (Attempt {attempt+1}/{max_retries})..."
+                    print(msg)
+                    if status_callback:
+                        status_callback(msg)
+                    time.sleep(wait_time)
+                else:
+                    raise
+        return operation_func()
 
     def is_connected(self) -> bool:
         return self.client is not None
@@ -105,32 +132,35 @@ class CloudProvider:
             print(f"Error downloading content preview for '{cloud_path}': {e}")
             return None
 
-    def upload_file(self, local_path: str, cloud_dest_path: str) -> Tuple[bool, str]:
-        """Uploads a file directly to Dropbox Cloud API."""
+    def upload_file(self, local_path: str, cloud_dest_path: str, status_callback: Optional[Callable[[str], None]] = None) -> Tuple[bool, str]:
+        """Uploads a file directly to Dropbox Cloud API with rate limit backoff retry."""
         if not self.is_connected():
             return False, "Cloud provider not connected."
 
         try:
             size = os.path.getsize(local_path)
-            with open(local_path, "rb") as f:
-                if size <= 150 * 1024 * 1024:  # <= 150MB standard upload
-                    self.client.files_upload(f.read(), cloud_dest_path, mode=dropbox.files.WriteMode.overwrite)
-                else:  # Chunked upload for large files
-                    CHUNK_SIZE = 10 * 1024 * 1024
-                    upload_session_start_result = self.client.files_upload_session_start(f.read(CHUNK_SIZE))
-                    cursor = dropbox.files.UploadSessionCursor(
-                        session_id=upload_session_start_result.session_id,
-                        offset=f.tell()
-                    )
-                    commit = dropbox.files.CommitInfo(path=cloud_dest_path)
 
-                    while f.tell() < size:
-                        if (size - f.tell()) <= CHUNK_SIZE:
-                            self.client.files_upload_session_finish(f.read(CHUNK_SIZE), cursor, commit)
-                        else:
-                            self.client.files_upload_session_append_v2(f.read(CHUNK_SIZE), cursor)
-                            cursor.offset = f.tell()
+            def _do_upload():
+                with open(local_path, "rb") as f:
+                    if size <= 150 * 1024 * 1024:  # <= 150MB standard upload
+                        self.client.files_upload(f.read(), cloud_dest_path, mode=dropbox.files.WriteMode.overwrite)
+                    else:  # Chunked upload for large files
+                        CHUNK_SIZE = 10 * 1024 * 1024
+                        upload_session_start_result = self.client.files_upload_session_start(f.read(CHUNK_SIZE))
+                        cursor = dropbox.files.UploadSessionCursor(
+                            session_id=upload_session_start_result.session_id,
+                            offset=f.tell()
+                        )
+                        commit = dropbox.files.CommitInfo(path=cloud_dest_path, mode=dropbox.files.WriteMode.overwrite)
 
+                        while f.tell() < size:
+                            if (size - f.tell()) <= CHUNK_SIZE:
+                                self.client.files_upload_session_finish(f.read(CHUNK_SIZE), cursor, commit)
+                            else:
+                                self.client.files_upload_session_append_v2(f.read(CHUNK_SIZE), cursor)
+                                cursor.offset = f.tell()
+
+            self._execute_with_rate_limit_retry(_do_upload, status_callback=status_callback)
             return True, "Upload successful"
         except Exception as e:
             return False, f"Upload error: {e}"
