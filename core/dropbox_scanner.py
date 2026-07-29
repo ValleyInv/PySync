@@ -35,6 +35,13 @@ class DropboxPackageItem:
             num /= 1024.0
         return f"{num:.1f} TB"
 
+    @property
+    def formatted_date(self) -> str:
+        if not self.modified_time:
+            return "N/A"
+        import datetime
+        return datetime.datetime.fromtimestamp(self.modified_time).strftime("%Y-%m-%d %H:%M:%S")
+
 def update_anonymization_index(config: ConfigManager, entries: Dict[str, str]):
     """Appends or updates anonymization index mapping in local Dropbox root."""
     target_dir = config.get_effective_target_path()

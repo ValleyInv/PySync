@@ -3,7 +3,7 @@ import datetime
 from typing import List, Optional
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QTableWidget, QTableWidgetItem, QHeaderView, QMenu, QMessageBox, QFileDialog
+    QTableWidget, QTableWidgetItem, QHeaderView, QMenu, QMessageBox, QFileDialog, QComboBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush, QAction
@@ -51,6 +51,22 @@ class DropboxViewDialog(QDialog):
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.textChanged.connect(self._filter_table)
         filter_hbox.addWidget(self.search_edit, 1)
+
+        sort_lbl = QLabel("Sort By:")
+        sort_lbl.setStyleSheet("font-weight: bold;")
+        filter_hbox.addWidget(sort_lbl)
+
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItems([
+            "📅 Date Modified (Newest First)",
+            "📅 Date Modified (Oldest First)",
+            "🔤 Customer Name (A-Z)",
+            "📦 Package File Name (A-Z)",
+            "📊 Size (Largest First)"
+        ])
+        self.sort_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.sort_combo.currentIndexChanged.connect(self._filter_table)
+        filter_hbox.addWidget(self.sort_combo)
 
         export_btn = QPushButton("🔓 Export Decrypted Package...")
         export_btn.setObjectName("primaryBtn")
@@ -104,9 +120,23 @@ class DropboxViewDialog(QDialog):
                 query in item.real_customer_name.lower() or
                 query in item.real_store_name.lower() or
                 query in item.real_file_name.lower() or
-                query in item.stored_file_name.lower()
+                query in item.stored_file_name.lower() or
+                query in item.formatted_date.lower()
             ):
                 filtered.append(item)
+
+        # Apply sorting
+        sort_mode = self.sort_combo.currentText()
+        if "Newest First" in sort_mode:
+            filtered.sort(key=lambda x: x.modified_time, reverse=True)
+        elif "Oldest First" in sort_mode:
+            filtered.sort(key=lambda x: x.modified_time)
+        elif "Customer" in sort_mode:
+            filtered.sort(key=lambda x: (x.real_customer_name.lower(), x.real_store_name.lower(), x.real_file_name.lower()))
+        elif "Package File Name" in sort_mode:
+            filtered.sort(key=lambda x: x.real_file_name.lower())
+        elif "Size" in sort_mode:
+            filtered.sort(key=lambda x: x.size, reverse=True)
 
         self._display_items(filtered)
 

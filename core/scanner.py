@@ -26,6 +26,13 @@ class ScannedPackageItem:
             num /= 1024.0
         return f"{num:.1f} TB"
 
+    @property
+    def formatted_date(self) -> str:
+        if not self.modified_time:
+            return "N/A"
+        import datetime
+        return datetime.datetime.fromtimestamp(self.modified_time).strftime("%Y-%m-%d %H:%M:%S")
+
 def parse_customer_and_store(root_path: str, base_dir: str, file_name: str) -> Tuple[str, str]:
     """Parses customer name and store name from folder path or package filename."""
     rel_parts = [p for p in os.path.relpath(root_path, base_dir).split(os.sep) if p and p != "."]
@@ -128,8 +135,8 @@ class PackageScannerWorker(QThread):
                     modified_time=mtime
                 ))
 
-            # Sort by customer name, store, filename
-            package_items.sort(key=lambda x: (x.customer_name.lower(), x.store_name.lower(), x.file_name.lower()))
+            # Default sort: newest modified package files first
+            package_items.sort(key=lambda x: x.modified_time, reverse=True)
             self.scan_completed.emit(package_items)
 
         except Exception as e:

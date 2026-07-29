@@ -2,7 +2,7 @@ import os
 from typing import List, Set
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QMessageBox, QFileDialog
+    QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QMessageBox, QFileDialog, QComboBox
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from config import ConfigManager, DEFAULT_SCAN_PATH
@@ -17,7 +17,7 @@ class ScannerDialog(QDialog):
         super().__init__(parent)
         self.config = config
         self.setWindowTitle("🔍 Titan Inventory Package Scanner (*.tpkj.*)")
-        self.resize(980, 680)
+        self.resize(1060, 680)
         self.all_items: List[ScannedPackageItem] = []
         self.displayed_items: List[ScannedPackageItem] = []
         self.selected_item_paths: Set[str] = set()
@@ -104,9 +104,25 @@ class ScannerDialog(QDialog):
 
         self.search_input = QLineEdit()
         self.search_input.setObjectName("searchEdit")
-        self.search_input.setPlaceholderText("🔍 Filter by Customer, Store, or Package File Name...")
+        self.search_input.setPlaceholderText("🔍 Filter by Customer, Store, Package File, or Date...")
         self.search_input.textChanged.connect(self._on_search_text_changed)
         filter_box.addWidget(self.search_input, 2)
+
+        sort_lbl = QLabel("Sort By:")
+        sort_lbl.setStyleSheet("font-weight: bold;")
+        filter_box.addWidget(sort_lbl)
+
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItems([
+            "📅 Date Modified (Newest First)",
+            "📅 Date Modified (Oldest First)",
+            "🔤 Customer & Store (A-Z)",
+            "📦 Package File Name (A-Z)",
+            "📊 File Size (Largest First)"
+        ])
+        self.sort_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.sort_combo.currentIndexChanged.connect(self._apply_filter)
+        filter_box.addWidget(self.sort_combo)
 
         select_all_btn = QPushButton("☑ Select All Visible")
         select_all_btn.clicked.connect(self._select_all_visible)
@@ -120,14 +136,15 @@ class ScannerDialog(QDialog):
 
         # Packages Table
         self.table = QTableWidget()
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(["Select", "Customer", "Store", "Package File", "Highest Version", "Size"])
+        self.table.setColumnCount(7)
+        self.table.setHorizontalHeaderLabels(["Select", "Customer", "Store", "Package File", "Highest Version", "Size", "Date Modified"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         layout.addWidget(self.table, 1)
 
@@ -209,7 +226,7 @@ class ScannerDialog(QDialog):
         query = self.search_input.text().strip().lower()
 
         if not query:
-            filtered = self.all_items
+            filtered = list(self.all_items)
         else:
             filtered = [
                 i for i in self.all_items
@@ -217,7 +234,21 @@ class ScannerDialog(QDialog):
                 or query in i.store_name.lower()
                 or query in i.file_name.lower()
                 or query in str(i.version_num)
+                or query in i.formatted_date.lower()
             ]
+
+        # Apply sorting
+        sort_mode = self.sort_combo.currentText()
+        if "Newest First" in sort_mode:
+            filtered.sort(key=lambda x: x.modified_time, reverse=True)
+        elif "Oldest First" in sort_mode:
+            filtered.sort(key=lambda x: x.modified_time)
+        elif "Customer" in sort_mode:
+            filtered.sort(key=lambda x: (x.customer_name.lower(), x.store_name.lower(), x.file_name.lower()))
+        elif "Package File Name" in sort_mode:
+            filtered.sort(key=lambda x: x.file_name.lower())
+        elif "Size" in sort_mode:
+            filtered.sort(key=lambda x: x.size, reverse=True)
 
         self._populate_table(filtered)
 
@@ -258,6 +289,10 @@ class ScannerDialog(QDialog):
             s_item = QTableWidgetItem(item.formatted_size)
             s_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self.table.setItem(row, 5, s_item)
+
+            d_item = QTableWidgetItem(item.formatted_date)
+            d_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row, 6, d_item)
 
         self.table.blockSignals(False)
         self.table.setUpdatesEnabled(True)
